@@ -1,0 +1,159 @@
+
+# UCRex Hydroponic Bed Plant Hole Optimizer
+# Fits max net pots into a tapered Vestas V27 turbine blade section
+
+import math
+
+def calculate_blade_chord(x_meters):
+    """
+    Calculates chord width (in inches) at any point x along the 13m Vestas V27 span.
+    Root chord = 1174 mm (~46.22 in), Tip chord = 470 mm (~18.50 in).
+    """
+    length_m = 13.0
+    root_chord_in = 1174.0 / 25.4  # 46.22 inches
+    tip_chord_in = 470.0 / 25.4    # 18.50 inches
+    
+    # linear taper equation along span
+    fraction = max(0.0, min(1.0, x_meters / length_m))
+    return root_chord_in - fraction * (root_chord_in - tip_chord_in)
+
+def optimize_plant_holes(
+    section_name="Mid-Span (Recommended)",
+    start_m=2.0,
+    end_m=5.0,
+    hole_diam_in=3.0,     # default 3 inch hole diameter
+    edge_spacing_in=2.0,  # default 2 inch spacing between hole edges
+    margin_in=2.0,        # safety margin from shell cut edges
+    layout="staggered",   # 'staggered' or 'grid'
+    dual_channel=False    # True = split into DWC and NFT channels
+):
+    # center to center distance required between adjacent holes
+    c2c_dist = hole_diam_in + edge_spacing_in  # 5.0 inches total
+    
+    # step size along the span direction
+    if layout == "staggered":
+        # height of equilateral triangle for max packing density
+        x_step = c2c_dist * (math.sqrt(3) / 2.0)  # ~4.33 inches
+    else:
+        x_step = c2c_dist  # 5.0 inches
+        
+    start_in = start_m * 39.3701
+    end_in = end_m * 39.3701
+    section_len_ft = (end_m - start_m) * 3.28084
+    
+    start_chord = calculate_blade_chord(start_m)
+    end_chord = calculate_blade_chord(end_m)
+    
+    holes = []
+    
+    if not dual_channel:
+        # single top lid across the full available trough width
+        curr_x = start_in + margin_in + (hole_diam_in / 2.0)
+        row_count = 0
+        
+        while curr_x <= (end_in - margin_in - hole_diam_in / 2.0):
+            # calculate available width at this cross section
+            curr_x_m = curr_x / 39.3701
+            current_chord = calculate_blade_chord(curr_x_m)
+            avail_width = current_chord - (2.0 * margin_in)
+            
+            if avail_width >= hole_diam_in:
+                # max columns across the width
+                max_cols = int((avail_width - hole_diam_in) // c2c_dist) + 1
+                
+                # offset odd rows for staggered layout
+                y_offset = (c2c_dist / 2.0) if (layout == "staggered" and row_count % 2 == 1) else 0.0
+                total_span = (max_cols - 1) * c2c_dist
+                y_start = -total_span / 2.0 + y_offset
+                
+                for col in range(max_cols):
+                    y_pos = y_start + (col * c2c_dist)
+                    # verify hole fits inside available width boundary
+                    if abs(y_pos) + (hole_diam_in / 2.0) <= (avail_width / 2.0):
+                        holes.append({
+                            "span_x_in": round(curr_x - start_in, 2),
+                            "transverse_y_in": round(y_pos, 2),
+                            "channel": "Full Width Bed"
+                        })
+                        
+            curr_x += x_step
+            row_count += 1
+            
+    else:
+        # dual channel layout (DWC ~50% chord width, NFT ~35% chord width)
+        channels = [
+            ("DWC Channel (Leading Edge)", 0.50),
+            ("NFT Channel (Trailing Edge)", 0.35)
+        ]
+        
+        for chan_name, width_ratio in channels:
+            curr_x = start_in + margin_in + (hole_diam_in / 2.0)
+            row_count = 0
+            
+            while curr_x <= (end_in - margin_in - hole_diam_in / 2.0):
+                curr_x_m = curr_x / 39.3701
+                current_chord = calculate_blade_chord(curr_x_m)
+                chan_width = (current_chord * width_ratio) - (2.0 * margin_in)
+                
+                if chan_width >= hole_diam_in:
+                    max_cols = int((chan_width - hole_diam_in) // c2c_dist) + 1
+                    y_offset = (c2c_dist / 2.0) if (layout == "staggered" and row_count % 2 == 1) else 0.0
+                    total_span = (max_cols - 1) * c2c_dist
+                    y_start = -total_span / 2.0 + y_offset
+                    
+                    for col in range(max_cols):
+                        y_pos = y_start + (col * c2c_dist)
+                        if abs(y_pos) + (hole_diam_in / 2.0) <= (chan_width / 2.0):
+                            holes.append({
+                                "span_x_in": round(curr_x - start_in, 2),
+                                "transverse_y_in": round(y_pos, 2),
+                                "channel": chan_name
+                            })
+                            
+                curr_x += x_step
+                row_count += 1
+
+    # print out optimization report
+    print(f" hydroponic hole optimization: {section_name.upper()}")
+    print(f"Span Range        : {start_m:.1f} m to {end_m:.1f} m ({section_len_ft:.1f} ft long)")
+    print(f"Chord Taper       : {start_chord:.1f}\" at start >{end_chord:.1f}\" at end")
+    print(f"Hole Spec         : {hole_diam_in}\" diameter | {edge_spacing_in}\" edge spacing")
+    print(f"Center-to-Center  : {c2c_dist}\" (Layout: {layout.title()})")
+    print(f"Safety Edge Margin: {margin_in}\"")
+   
+    print(f"TOTAL PLANT CAPACITY: {len(holes)} plants")
+    
+    return holes
+
+# # Example 1: Standard 3m Mid-Span section (Recommended for T-ReX Phase 2 shipping)
+# mid_span_holes = optimize_plant_holes(
+#     section_name="Mid-Span Cut (2.0m to 5.0m)",
+#     start_m=2.0,
+#     end_m=5.0,
+#     hole_diam_in=3.0,
+#     edge_spacing_in=2.0,
+#     layout="staggered",
+#     dual_channel=False
+# )
+
+# # Example 2: Dual Channel Setup (DWC + NFT split by internal shear web)
+# dual_chan_holes = optimize_plant_holes(
+#     section_name="Mid-Span Dual-Zone (2.0m to 5.0m)",
+#     start_m=2.0,
+#     end_m=5.0,
+#     hole_diam_in=3.0,
+#     edge_spacing_in=2.0,
+#     layout="staggered",
+#     dual_channel=True
+# )
+
+# Example 3: optimized 
+mid_span_holes = optimize_plant_holes(
+    section_name="optimized based on reddit",
+    start_m=2.0,
+    end_m=5.0,
+    hole_diam_in=2.0,
+    edge_spacing_in=10.0,
+    layout="staggered",
+    dual_channel=False
+)
