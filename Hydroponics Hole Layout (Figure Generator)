@@ -1,0 +1,159 @@
+import math
+import numpy as np
+import matplotlib.pyplot as plt
+import matplotlib.patches as patches
+
+# --- Vestas V27 Geometry Function ---
+def calculate_blade_chord(x_m):
+    """
+    Returns chord width (in inches) at position x_m along the 13m Vestas V27 span.
+    Root chord = 1174 mm (~46.22 in), Tip chord = 470 mm (~18.50 in).
+    """
+    length_m = 13.0
+    root_chord_in = 1174.0 / 25.4  # ~46.22 in
+    tip_chord_in = 470.0 / 25.4    # ~18.50 in
+    fraction = max(0.0, min(1.0, x_m / length_m))
+    return root_chord_in - fraction * (root_chord_in - tip_chord_in)
+
+def generate_and_display_blade_diagram(
+    start_m=2.0,
+    end_m=5.0,
+    hole_diam_in=3.0,
+    edge_spacing_in=2.0,
+    margin_in=2.0,
+    save_filename="v27_hydroponic_blade_layout.png"
+):
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 8), gridspec_kw={'height_ratios': [1, 2.2]})
+    
+    # --- Color Palette ---
+    INK = "#222222"
+    MUTE2 = "#888888"
+    BLUE_HERO = "#0072b2"
+    SHEAR_WEB_ORANGE = "#d55e00"
+    
+    # --- 1. FULL BLADE OVERVIEW ---
+    x_full = np.linspace(0, 13.0, 100)
+    chords_full = np.array([calculate_blade_chord(x) for x in x_full])
+    
+    le_full = chords_full * 0.4
+    te_full = -chords_full * 0.6
+    web_full = le_full - chords_full * 0.45
+    
+    ax1.plot(x_full, le_full, color=INK, lw=1.5, label="Blade Shell Outline")
+    ax1.plot(x_full, te_full, color=INK, lw=1.5)
+    ax1.plot([0, 0], [te_full[0], le_full[0]], color=INK, lw=1.5)
+    ax1.plot([13.0, 13.0], [te_full[-1], le_full[-1]], color=INK, lw=1.5)
+    ax1.plot(x_full, web_full, color=MUTE2, linestyle="--", lw=1.0, label="Internal Shear Web")
+    
+    # Highlight selected cut section
+    x_sec = np.linspace(start_m, end_m, 50)
+    chords_sec = np.array([calculate_blade_chord(x) for x in x_sec])
+    le_sec = chords_sec * 0.4
+    te_sec = -chords_sec * 0.6
+    
+    ax1.fill_between(x_sec, te_sec, le_sec, color=BLUE_HERO, alpha=0.35, label=f"Selected Cut ({start_m:.1f}m - {end_m:.1f}m)")
+    ax1.axvline(start_m, color=BLUE_HERO, linestyle=":", lw=1.2)
+    ax1.axvline(end_m, color=BLUE_HERO, linestyle=":", lw=1.2)
+    
+    ax1.set_title("Vestas V27 Blade (13m Total Span) with Selected Cut Section", fontsize=11, fontweight="bold", loc="left")
+    ax1.set_xlabel("Span Position (meters)")
+    ax1.set_ylabel("Chord Profile (in)")
+    ax1.set_xlim(-0.5, 13.5)
+    ax1.grid(True, linestyle=":", alpha=0.4)
+    ax1.legend(loc="upper right", fontsize=8, frameon=True)
+    
+    # --- 2. ZOOMED-IN HOLE LAYOUT ---
+    c2c_dist = hole_diam_in + edge_spacing_in
+    x_step = c2c_dist * (math.sqrt(3) / 2.0)  # Staggered height step
+    
+    start_in = start_m * 39.3701
+    end_in = end_m * 39.3701
+    
+    x_sec_in = np.linspace(start_in, end_in, 100)
+    chords_sec_in = np.array([calculate_blade_chord(x / 39.3701) for x in x_sec_in])
+    
+    le_sec_in = chords_sec_in * 0.4
+    te_sec_in = -chords_sec_in * 0.6
+    web_sec_in = le_sec_in - chords_sec_in * 0.45
+    
+    ax2.plot(x_sec_in, le_sec_in, color=INK, lw=2.0)
+    ax2.plot(x_sec_in, te_sec_in, color=INK, lw=2.0)
+    ax2.plot([start_in, start_in], [te_sec_in[0], le_sec_in[0]], color=INK, lw=2.0)
+    ax2.plot([end_in, end_in], [te_sec_in[-1], le_sec_in[-1]], color=INK, lw=2.0)
+    ax2.plot(x_sec_in, web_sec_in, color=SHEAR_WEB_ORANGE, linestyle="--", lw=1.8, label="Shear Web Partition")
+    
+    ax2.fill_between(x_sec_in, web_sec_in, le_sec_in, color="#e6f2ff", alpha=0.5, label="DWC Zone (Deep Leading Edge)")
+    ax2.fill_between(x_sec_in, te_sec_in, web_sec_in, color="#e6ffe6", alpha=0.5, label="NFT Zone (Shallow Trailing Edge)")
+    
+    # Compute hole locations
+    holes_dwc, holes_nft = [], []
+    curr_x = start_in + margin_in + (hole_diam_in / 2.0)
+    row = 0
+    
+    while curr_x <= (end_in - margin_in - hole_diam_in / 2.0):
+        curr_x_m = curr_x / 39.3701
+        chord = calculate_blade_chord(curr_x_m)
+        le_y = chord * 0.4
+        te_y = -chord * 0.6
+        web_y = le_y - chord * 0.45
+        
+        # DWC Holes
+        dwc_min_y = web_y + margin_in + hole_diam_in / 2.0
+        dwc_max_y = le_y - margin_in - hole_diam_in / 2.0
+        if dwc_max_y >= dwc_min_y:
+            dwc_cols = int((dwc_max_y - dwc_min_y) // c2c_dist) + 1
+            y_offset = (c2c_dist / 2.0) if (row % 2 == 1) else 0.0
+            for c in range(dwc_cols):
+                y_pos = dwc_min_y + (c * c2c_dist) + y_offset
+                if dwc_min_y <= y_pos <= dwc_max_y:
+                    holes_dwc.append((curr_x, y_pos))
+                    
+        # NFT Holes
+        nft_min_y = te_y + margin_in + hole_diam_in / 2.0
+        nft_max_y = web_y - margin_in - hole_diam_in / 2.0
+        if nft_max_y >= nft_min_y:
+            nft_cols = int((nft_max_y - nft_min_y) // c2c_dist) + 1
+            y_offset = (c2c_dist / 2.0) if (row % 2 == 1) else 0.0
+            for c in range(nft_cols):
+                y_pos = nft_min_y + (c * c2c_dist) + y_offset
+                if nft_min_y <= y_pos <= nft_max_y:
+                    holes_nft.append((curr_x, y_pos))
+                    
+        curr_x += x_step
+        row += 1
+
+    # Render Circles
+    for hx, hy in holes_dwc:
+        ax2.add_patch(patches.Circle((hx, hy), hole_diam_in / 2.0, facecolor=BLUE_HERO, edgecolor=INK, lw=0.8, alpha=0.85))
+    for hx, hy in holes_nft:
+        ax2.add_patch(patches.Circle((hx, hy), hole_diam_in / 2.0, facecolor="#009e73", edgecolor=INK, lw=0.8, alpha=0.85))
+
+    dwc_patch = patches.Patch(color=BLUE_HERO, label=f"DWC Net Pots ({len(holes_dwc)} plants)")
+    nft_patch = patches.Patch(color="#009e73", label=f"NFT Net Pots ({len(holes_nft)} plants)")
+    
+    ax2.set_title(f"Optimized Plant Hole Pattern: {start_m:.1f}m to {end_m:.1f}m Section (Total: {len(holes_dwc) + len(holes_nft)} Net Pots)", fontsize=11, fontweight="bold", loc="left")
+    ax2.set_xlabel("Section Span Position (inches from root)")
+    ax2.set_ylabel("Transverse Cross-Section (inches)")
+    ax2.set_xlim(start_in - 5, end_in + 5)
+    ax2.set_ylim(-32, 22)
+    ax2.grid(True, linestyle=":", alpha=0.4)
+    
+    handles, labels = ax2.get_legend_handles_labels()
+    handles.extend([dwc_patch, nft_patch])
+    ax2.legend(handles=handles, loc="upper right", fontsize=8, frameon=True)
+
+    plt.suptitle(f"UCRex Vestas V27 Hydroponic Bed Layout ({start_m:.1f}m–{end_m:.1f}m Cut)\n"
+                 f"3\" Net Pots | 2\" Edge Spacing | Staggered Grid | Total Capacity: {len(holes_dwc) + len(holes_nft)} Plants",
+                 fontsize=12, fontweight="bold", y=0.98)
+
+    plt.tight_layout()
+    
+    # Save PNG file locally
+    if save_filename:
+        plt.savefig(save_filename, dpi=200, bbox_inches="tight")
+        print(f"Saved layout image to {save_filename}")
+    plt.show()
+
+# Run the function
+if __name__ == "__main__":
+    generate_and_display_blade_diagram()
