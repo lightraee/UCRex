@@ -3,7 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 
-# --- Vestas V27 Geometry Function ---
+# Vestas V27 Blade
 def calculate_blade_chord(x_m):
     """
     Returns chord width (in inches) at position x_m along the 13m Vestas V27 span.
@@ -25,7 +25,7 @@ def generate_and_display_blade_diagram(
 ):
     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 8), gridspec_kw={'height_ratios': [1, 2.2]})
     
-    # --- Color Palette ---
+    #Color Palette
     INK = "#222222"
     MUTE2 = "#888888"
     BLUE_HERO = "#0072b2"
